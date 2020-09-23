@@ -5,7 +5,7 @@
  **/
 
 /**\
- * Modified due to homework reasons :)
+ * Modified example due to homework reasons :)
  **/
 
 /**
@@ -86,17 +86,13 @@ void user_delay_us(uint32_t period, void *intf_ptr);
 void get_datetime_csv(char *result);
 
 /*!
- * @brief Function for print the temperature, humidity and pressure data.
+ * @brief Function to assemble a string with temperature, humidity and pressure data separated by ",".
  *
- * @param[out] comp_data    :   Structure instance of bme280_data
+ *  @param[in] data       : the data struct with the attributes values.
  *
- * @note Sensor data whose can be read
+ *  @param[out] result    :   The string with the attributes separated by ","
  *
- * sens_list
- * --------------
- * Pressure
- * Temperature
- * Humidity
+ *  @return void.
  *
  */
 void format_data_csv(struct bme280_data *data, char *row);
@@ -148,7 +144,7 @@ int8_t user_i2c_write(uint8_t reg_addr, const uint8_t *data, uint32_t len, void 
  * @retval BME280_E_NVM_COPY_FAILED - Error: NVM copy failed
  *
  */
-int8_t stream_sensor_data_forced_mode(struct bme280_dev *dev);
+int8_t stream_sensor_data_forced_mode(struct bme280_dev *dev, char *csv_path);
 
 /*!
  * @brief This function starts execution of the program.
@@ -162,9 +158,9 @@ int main(int argc, char* argv[])
     /* Variable to define the result */
     int8_t rslt = BME280_OK;
 
-    if (argc < 2)
+    if (argc < 3)
     {
-        fprintf(stderr, "Missing argument for i2c bus.\n");
+        fprintf(stderr, "Usage syntax: ./bme280 [file bus path] [csv file]\n");
         exit(1);
     }
 
@@ -202,7 +198,7 @@ int main(int argc, char* argv[])
         exit(1);
     }
 
-    rslt = stream_sensor_data_forced_mode(&dev);
+    rslt = stream_sensor_data_forced_mode(&dev, argv[2]);
     if (rslt != BME280_OK)
     {
         fprintf(stderr, "Failed to stream sensor data (code %+d).\n", rslt);
@@ -270,7 +266,7 @@ int8_t user_i2c_write(uint8_t reg_addr, const uint8_t *data, uint32_t len, void 
 }
 
 /*!
- * @brief This API used to print the sensor temperature, pressure and humidity data.
+ * @brief Function to assemble a string with temperature, humidity and pressure data separated by ",".
  */
 void format_data_csv(struct bme280_data *data, char *row)
 {
@@ -294,13 +290,13 @@ void format_data_csv(struct bme280_data *data, char *row)
     char datetime[20];  // Ex: 2020-09-22,19:52:31
     get_datetime_csv(datetime);
 
-    sprintf(row, "%s,%0.2lf,%0.2lf,%0.2lf", datetime, temp, press, hum);
+    sprintf(row, "%s,%0.2lf,%0.2lf,%0.2lf", datetime, temp, hum, press);
 }
 
 /*!
  * @brief This API reads the sensor temperature, pressure and humidity data in forced mode.
  */
-int8_t stream_sensor_data_forced_mode(struct bme280_dev *dev)
+int8_t stream_sensor_data_forced_mode(struct bme280_dev *dev, char *csv_path)
 {
     /* Recommended mode of operation: Indoor navigation */
     dev->settings.osr_h = BME280_OVERSAMPLING_1X;
@@ -319,10 +315,23 @@ int8_t stream_sensor_data_forced_mode(struct bme280_dev *dev)
         return result;
     }
 
-    printf("Date,Time,Temperature,Humidity,Pressure\n");
+    FILE *csv = fopen(csv_path, "w");
+    if (csv == NULL)
+    {
+        perror("Unable to open the file");
+        exit(1);
+    }
 
+    printf("Started collecting. Saving to %s every %d seconds...\n", csv_path, MEAN_INTERVAL);
+
+    fprintf(csv, "date,time,temperature,humidity,pressure\n");
+
+    unsigned long long saved_counter = 0;
     while (1)
     {
+        printf("\r\tSaved %llu samples so far!", saved_counter++);
+        fflush(stdout);
+
         result = bme280_set_sensor_mode(BME280_FORCED_MODE, dev);
         if (result != BME280_OK)
         {
@@ -354,8 +363,11 @@ int8_t stream_sensor_data_forced_mode(struct bme280_dev *dev)
         char row[50];  // Ex: 2020-09-22,20:53:36,29.58,898.82,35.83
         format_data_csv(&data_mean, row);
 
-        printf("%s\n", row);
+        fprintf(csv, "%s\n", row);
+        fflush(csv);
     }
 
+    putchar('\n');
+    fclose(csv);
     return result;
 }
